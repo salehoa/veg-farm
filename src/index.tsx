@@ -172,7 +172,7 @@ app.delete('/api/products/:id', async (c) => {
 app.get('/api/shops', async (c) => {
   try {
     const { results } = await c.env.DB.prepare(
-      'SELECT id, username, name, phone, address, status, created_at FROM users WHERE role = "shop" ORDER BY created_at DESC'
+      'SELECT id, username, password, name, phone, address, status, created_at FROM users WHERE role = "shop" ORDER BY created_at DESC'
     ).all()
 
     return c.json(results)
@@ -230,6 +230,38 @@ app.delete('/api/shops/:id', async (c) => {
     return c.json({ success: true, message: 'تم حذف المحل بنجاح' })
   } catch (error) {
     return c.json({ error: 'حدث خطأ في حذف المحل' }, 500)
+  }
+})
+
+// Update shop (admin only) - username/password/name/phone/address/status
+app.put('/api/shops/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const { username, password, name, phone, address, status } = await c.req.json()
+
+    const sets: string[] = []
+    const params: any[] = []
+
+    if (username) {
+      const existing = await c.env.DB.prepare('SELECT id FROM users WHERE username = ? AND id != ?')
+        .bind(username, id).first()
+      if (existing) return c.json({ error: 'اسم المستخدم موجود بالفعل' }, 400)
+      sets.push('username = ?'); params.push(username)
+    }
+    if (password) { sets.push('password = ?'); params.push(hashPassword(password)) }
+    if (name != null) { sets.push('name = ?'); params.push(name) }
+    if (phone != null) { sets.push('phone = ?'); params.push(phone) }
+    if (address != null) { sets.push('address = ?'); params.push(address) }
+    if (status) { sets.push('status = ?'); params.push(status) }
+
+    if (sets.length === 0) return c.json({ error: 'لا توجد بيانات للتحديث' }, 400)
+
+    params.push(id)
+    await c.env.DB.prepare(`UPDATE users SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND role = "shop"`).bind(...params).run()
+
+    return c.json({ success: true, message: 'تم تحديث بيانات المحل بنجاح' })
+  } catch (error) {
+    return c.json({ error: 'حدث خطأ في تحديث بيانات المحل' }, 500)
   }
 })
 

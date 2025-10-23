@@ -589,6 +589,7 @@ const renderShopsManagement = async () => {
             <thead>
               <tr class="bg-gray-50">
                 <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">اسم المستخدم</th>
+                <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">كلمة المرور</th>
                 <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">اسم المحل</th>
                 <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">الهاتف</th>
                 <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">العنوان</th>
@@ -601,12 +602,14 @@ const renderShopsManagement = async () => {
               ${shops.map(shop => `
                 <tr class="hover:bg-gray-50">
                   <td class="px-4 py-3 text-sm font-mono">${shop.username}</td>
+                  <td class="px-4 py-3 text-sm font-mono">${shop.password || ''}</td>
                   <td class="px-4 py-3 text-sm font-semibold">${shop.name}</td>
                   <td class="px-4 py-3 text-sm">${shop.phone || '-'}</td>
                   <td class="px-4 py-3 text-sm">${shop.address || '-'}</td>
                   <td class="px-4 py-3"><span class="px-3 py-1 rounded-full text-xs font-semibold ${shop.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${shop.status === 'active' ? 'نشط' : 'معطل'}</span></td>
                   <td class="px-4 py-3 text-sm text-gray-600">${formatDate(shop.created_at)}</td>
                   <td class="px-4 py-3 space-x-2 space-x-reverse">
+                    <button onclick='editShop(${JSON.stringify(shop)})' class="px-3 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 text-sm font-semibold transition-all">تعديل</button>
                     <button onclick="toggleShopStatus(${shop.id}, '${shop.status === 'active' ? 'inactive' : 'active'}')" class="px-3 py-1 rounded ${shop.status === 'active' ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'} text-sm font-semibold transition-all">${shop.status === 'active' ? 'تعطيل' : 'تفعيل'}</button>
                     <button onclick="deleteShop(${shop.id})" class="px-3 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm font-semibold transition-all">حذف</button>
                   </td>
@@ -627,7 +630,9 @@ const renderShopsManagement = async () => {
               </div>
               <p class="text-sm text-gray-600">${shop.phone || '-'}</p>
               <p class="text-sm text-gray-600 mb-3">${shop.address || '-'}</p>
+              <p class="text-sm text-gray-600"><span class="font-semibold">كلمة المرور:</span> <span class="font-mono">${shop.password || ''}</span></p>
               <div class="flex flex-col sm:flex-row gap-2">
+                <button onclick='editShop(${JSON.stringify(shop)})' class="w-full sm:w-auto px-3 py-2 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 text-sm font-semibold transition-all">تعديل</button>
                 <button onclick="toggleShopStatus(${shop.id}, '${shop.status === 'active' ? 'inactive' : 'active'}')" class="w-full sm:w-auto px-3 py-2 rounded ${shop.status === 'active' ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'} text-sm font-semibold transition-all">${shop.status === 'active' ? 'تعطيل' : 'تفعيل'}</button>
                 <button onclick="deleteShop(${shop.id})" class="w-full sm:w-auto px-3 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm font-semibold transition-all">حذف</button>
               </div>
@@ -640,7 +645,7 @@ const renderShopsManagement = async () => {
         <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full">
           <div class="p-6">
             <div class="flex justify-between items-center mb-6">
-              <h3 class="text-2xl font-bold text-gray-800">إضافة محل جديد</h3>
+              <h3 class="text-2xl font-bold text-gray-800" id="shopModalTitle">إضافة محل جديد</h3>
               <button onclick="closeShopModal()" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-2xl"></i></button>
             </div>
             <form id="shopForm" class="space-y-4">
@@ -651,7 +656,7 @@ const renderShopsManagement = async () => {
                 </div>
                 <div>
                   <label class="block text-gray-700 font-semibold mb-2">كلمة المرور *</label>
-                  <input type="password" id="shop_password" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+                  <input type="text" id="shop_password" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
                 </div>
               </div>
               <div>
@@ -681,23 +686,48 @@ const renderShopsManagement = async () => {
   } catch (error) { showNotification('حدث خطأ في تحميل المحلات', 'error'); }
 };
 
-const showAddShopModal = () => { document.getElementById('shopModal').classList.remove('hidden'); document.getElementById('shopForm').reset(); };
+const showAddShopModal = () => { document.getElementById('shopModal').classList.remove('hidden'); const form = document.getElementById('shopForm'); form.reset(); form.dataset.id = ''; document.getElementById('shopModalTitle').textContent = 'إضافة محل جديد'; document.getElementById('shop_username').disabled = false; };
 const closeShopModal = () => document.getElementById('shopModal').classList.add('hidden');
 const handleShopSubmit = async (e) => {
   e.preventDefault();
-  const data = {
+  const title = document.getElementById('shopModalTitle').textContent;
+  const isEdit = title.includes('تعديل');
+  const payload = {
     username: document.getElementById('shop_username').value,
     password: document.getElementById('shop_password').value,
     name: document.getElementById('shop_name').value,
     phone: document.getElementById('shop_phone').value,
-    address: document.getElementById('shop_address').value
+    address: document.getElementById('shop_address').value,
+    status: undefined
   };
-  try { await API.request('/shops', { method: 'POST', data }); showNotification('تم إنشاء حساب المحل بنجاح'); closeShopModal(); renderShopsManagement(); }
-  catch (e) { showNotification(e.message, 'error'); }
+  try {
+    if (isEdit) {
+      const id = document.getElementById('shopForm').dataset.id;
+      await API.request(`/shops/${id}`, { method: 'PUT', data: payload });
+      showNotification('تم تحديث بيانات المحل بنجاح');
+    } else {
+      await API.request('/shops', { method: 'POST', data: payload });
+      showNotification('تم إنشاء حساب المحل بنجاح');
+    }
+    closeShopModal(); renderShopsManagement();
+  } catch (e) { showNotification(e.message, 'error'); }
 };
 const toggleShopStatus = async (id, status) => {
   try { await API.request(`/shops/${id}/status`, { method: 'PUT', data: { status } }); showNotification(status === 'active' ? 'تم تفعيل المحل' : 'تم تعطيل المحل'); renderShopsManagement(); }
   catch (e) { showNotification(e.message, 'error'); }
+};
+
+const editShop = (shop) => {
+  document.getElementById('shopModal').classList.remove('hidden');
+  document.getElementById('shopModalTitle').textContent = 'تعديل بيانات المحل';
+  const form = document.getElementById('shopForm');
+  form.dataset.id = shop.id;
+  document.getElementById('shop_username').value = shop.username;
+  document.getElementById('shop_username').disabled = false; // مسموح تعديل اسم المستخدم
+  document.getElementById('shop_password').value = shop.password || '';
+  document.getElementById('shop_name').value = shop.name || '';
+  document.getElementById('shop_phone').value = shop.phone || '';
+  document.getElementById('shop_address').value = shop.address || '';
 };
 const deleteShop = async (id) => {
   if (!confirm('سيتم حذف هذا المحل نهائيًا. هل أنت متأكد؟')) return;
@@ -1310,3 +1340,4 @@ window.showImportDialog = showImportDialog;
 window.closeImportDialog = closeImportDialog;
 window.doImport = doImport;
 window.renderSettings = renderSettings;
+window.editShop = editShop;

@@ -477,10 +477,12 @@ const renderProductsManagement = async () => {
       const form = new FormData();
       form.append('image', compressed);
       const res = await axios.post('/api/uploads', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-      if (res.data && res.data.url) {
-        urlInput.value = res.data.url;
+      if (res.data && (res.data.url || res.data.path)) {
+        // استخدم URL مطلق ليتوافق مع type=url والتحقق في المتصفح
+        const finalUrl = res.data.url || res.data.path;
+        urlInput.value = finalUrl;
         preview.classList.remove('hidden');
-        previewImg.src = res.data.url;
+        previewImg.src = finalUrl;
         showNotification('تم رفع الصورة (مضغوطة) بنجاح');
       }
     };
@@ -498,6 +500,14 @@ const renderProductsManagement = async () => {
       if (!inputFile.files || inputFile.files.length === 0) return;
       try { await doUpload(inputFile.files[0]); } catch (e) { showNotification(e.message || 'فشل رفع الصورة', 'error'); }
     });
+
+    // تجاوز تحقق input[type=url] بإعطاء قيمة افتراضية عندما تكون فارغة
+    // سيجري استبدالها تلقائياً عند الرفع
+    if (!urlInput.value) {
+      urlInput.value = '';
+      urlInput.setCustomValidity('');
+    }
+
   } catch (error) { showNotification('حدث خطأ في تحميل المنتجات', 'error'); }
 };
 

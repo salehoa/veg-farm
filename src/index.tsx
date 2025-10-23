@@ -618,8 +618,11 @@ app.post('/api/uploads', async (c) => {
 
     await c.env.R2.put(key, arrayBuffer, { httpMetadata: { contentType } })
 
-    // We expose a proxy URL so images can be viewed without public R2
-    return c.json({ success: true, key, url: `/api/uploads/${encodeURIComponent(key)}` })
+    // Build absolute URL for input type=url compatibility
+    const origin = new URL(c.req.url).origin
+    const path = `/api/uploads/${encodeURIComponent(key)}`
+    const url = `${origin}${path}`
+    return c.json({ success: true, key, path, url })
   } catch (error) {
     return c.json({ error: 'فشل رفع الصورة' }, 500)
   }

@@ -4,6 +4,7 @@ import { serveStatic } from 'hono/cloudflare-workers'
 
 type Bindings = {
   DB: D1Database;
+  R2: R2Bucket;
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -70,6 +71,8 @@ app.post('/api/auth/login', async (c) => {
 app.get('/api/products', async (c) => {
   try {
     const status = c.req.query('status')
+    const from = c.req.query('from')
+    const to = c.req.query('to')
     let query = 'SELECT * FROM products'
     
     if (status) {
@@ -207,6 +210,29 @@ app.post('/api/shops', async (c) => {
   }
 })
 
+// Delete shop (admin only)
+app.delete('/api/shops/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    // Check if shop has orders
+    const count = await c.env.DB.prepare(
+      'SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?'
+    ).bind(id).first()
+
+    if ((count?.cnt || 0) > 0) {
+      return c.json({ error: 'لا يمكن حذف المحل لوجود حجوزات مرتبطة به. يُرجى إلغاء الحساب بدلًا من الحذف.' }, 400)
+    }
+
+    await c.env.DB.prepare(
+      'DELETE FROM users WHERE id = ? AND role = "shop"'
+    ).bind(id).run()
+
+    return c.json({ success: true, message: 'تم حذف المحل بنجاح' })
+  } catch (error) {
+    return c.json({ error: 'حدث خطأ في حذف المحل' }, 500)
+  }
+})
+
 // Update shop status (admin only)
 app.put('/api/shops/:id/status', async (c) => {
   try {
@@ -234,6 +260,8 @@ app.get('/api/orders', async (c) => {
     const userId = c.req.query('userId')
     const role = c.req.query('role')
     const status = c.req.query('status')
+    const from = c.req.query('from')
+    const to = c.req.query('to')
     
     let query = `
       SELECT o.*, u.name as shop_name, u.phone as shop_phone
@@ -252,6 +280,15 @@ app.get('/api/orders', async (c) => {
     if (status) {
       conditions.push('o.status = ?')
       params.push(status)
+    }
+    
+    if (from) {
+      conditions.push('o.created_at >= ?')
+      params.push(`${from} 00:00:00`)
+    }
+    if (to) {
+      conditions.push('o.created_at <= ?')
+      params.push(`${to} 23:59:59`)
     }
     
     if (conditions.length > 0) {
@@ -401,17 +438,208 @@ app.put('/api/orders/:id/receipt', async (c) => {
   try {
     const id = c.req.param('id')
     const { receipt_url } = await c.req.json()
-    
-    await c.env.DB.prepare(
-      'UPDATE orders SET receipt_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).bind(receipt_url, id).run()
-
-    return c.json({ 
-      success: true,
-      message: 'تم رفع الإيصال بنجاح'
-    })
+    await c.env.DB.prepare('UPDATE orders SET receipt_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .bind(receipt_url, id).run()
+    return c.json({ success: true, message: 'تم رفع الإيصال بنجاح' })
   } catch (error) {
     return c.json({ error: 'حدث خطأ في رفع الإيصال' }, 500)
+  }
+})
+
+// Delete order (admin)
+app.delete('/api/orders/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const order = await c.env.DB.prepare('SELECT status FROM orders WHERE id = ?').bind(id).first()
+    if (!order) return c.json({ error: 'الحجز غير موجود' }, 404)
+
+    if (order.status !== 'cancelled') {
+      const { results: items } = await c.env.DB.prepare('SELECT product_id, quantity FROM order_items WHERE order_id = ?').bind(id).all()
+      for (const item of items as any[]) {
+        await c.env.DB.prepare('UPDATE products SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .bind(item.quantity, item.product_id).run()
+      }
+    }
+
+    await c.env.DB.prepare('DELETE FROM orders WHERE id = ?').bind(id).run()
+    return c.json({ success: true, message: 'تم حذف الحجز بنجاح' })
+  } catch (error) {
+    return c.json({ error: 'حدث خطأ في حذف الحجز' }, 500)
+  }
+})
+
+// Export orders (admin)
+app.get('/api/orders/export', async (c) => {
+  try {
+    const from = c.req.query('from')
+    const to = c.req.query('to')
+    const status = c.req.query('status')
+    const format = (c.req.query('format') || 'csv').toLowerCase()
+
+    const conditions: string[] = []
+    const params: any[] = []
+    if (from) { conditions.push('o.created_at >= ?'); params.push(`${from} 00:00:00`) }
+    if (to) { conditions.push('o.created_at <= ?'); params.push(`${to} 23:59:59`) }
+    if (status) { conditions.push('o.status = ?'); params.push(status) }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+
+    const { results } = await c.env.DB.prepare(
+      `SELECT 
+        o.id as order_id,
+        o.created_at,
+        o.updated_at,
+        o.status,
+        o.total_amount,
+        o.notes,
+        o.receipt_url,
+        u.id as shop_id,
+        u.name as shop_name,
+        u.username as shop_username,
+        oi.product_id,
+        oi.product_name,
+        oi.quantity,
+        oi.price,
+        oi.total
+       FROM orders o
+       JOIN users u ON o.shop_id = u.id
+       LEFT JOIN order_items oi ON oi.order_id = o.id
+       ${where}
+       ORDER BY o.created_at DESC, o.id DESC`
+    ).bind(...params).all()
+
+    if (format === 'json') {
+      return c.json(results)
+    }
+
+    // CSV
+    const header = [
+      'order_id','created_at','updated_at','status','order_total','notes','receipt_url','shop_id','shop_name','shop_username','product_id','product_name','quantity','price','item_total'
+    ]
+    const lines = [header.join(',')]
+    for (const r of results as any[]) {
+      const row = [
+        r.order_id, r.created_at, r.updated_at, r.status, r.total_amount, (r.notes||'').toString().replace(/\n/g,' '), (r.receipt_url||''), r.shop_id, (r.shop_name||''), (r.shop_username||''), r.product_id||'', (r.product_name||''), r.quantity||'', r.price||'', r.total||''
+      ]
+      lines.push(row.map(v => typeof v==='string' && v.includes(',') ? `"${v.replace(/"/g,'""')}"` : v).join(','))
+    }
+    const csv = lines.join('\n')
+    return new Response(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="orders_export.csv"' } })
+  } catch (error) {
+    return c.json({ error: 'حدث خطأ في تصدير البيانات' }, 500)
+  }
+})
+
+// Import orders (admin)
+app.post('/api/orders/import', async (c) => {
+  try {
+    const body = await c.req.json()
+    const orders = body.orders as any[]
+    if (!Array.isArray(orders)) return c.json({ error: 'صيغة الاستيراد غير صحيحة' }, 400)
+
+    const created: number[] = []
+
+    for (const o of orders) {
+      // Resolve shop
+      let shopId = o.shop_id
+      if (!shopId && o.shop_username) {
+        const shop = await c.env.DB.prepare('SELECT id FROM users WHERE username = ? AND role = "shop" AND status = "active"').bind(o.shop_username).first()
+        if (!shop) return c.json({ error: `المحل ${o.shop_username} غير موجود` }, 400)
+        shopId = shop.id
+      }
+      if (!shopId) return c.json({ error: 'shop_id أو shop_username مطلوب' }, 400)
+
+      const status = o.status || 'pending'
+      let total_amount = 0
+      const itemsValidated: any[] = []
+      if (!Array.isArray(o.items) || o.items.length === 0) return c.json({ error: 'يجب توفير عناصر الطلب' }, 400)
+
+      for (const it of o.items) {
+        const product = await c.env.DB.prepare('SELECT * FROM products WHERE id = ?')
+          .bind(it.product_id).first()
+        if (!product) return c.json({ error: `المنتج ${it.product_id} غير موجود` }, 400)
+
+        const price = it.price != null ? it.price : (product.price as number)
+        const quantity = it.quantity
+        if (status !== 'cancelled' && (product.quantity as number) < quantity) {
+          return c.json({ error: `الكمية المطلوبة من ${product.name_ar} غير متوفرة. المتوفر: ${product.quantity}` }, 400)
+        }
+        const lineTotal = price * quantity
+        total_amount += lineTotal
+        itemsValidated.push({ product_id: it.product_id, product_name: product.name_ar, quantity, price, total: lineTotal })
+      }
+
+      // Insert order (allow custom created_at)
+      let insertOrderSql = 'INSERT INTO orders (shop_id, total_amount, status, notes, receipt_url'
+      let valuesSql = ') VALUES (?, ?, ?, ?, ?'
+      const params: any[] = [shopId, total_amount, status, o.notes || '', o.receipt_url || '']
+      if (o.created_at) { insertOrderSql += ', created_at'; valuesSql += ', ?'; params.push(o.created_at) }
+      insertOrderSql += valuesSql + ')'
+
+      const orderResult = await c.env.DB.prepare(insertOrderSql).bind(...params).run()
+      const orderId = orderResult.meta.last_row_id
+
+      for (const it of itemsValidated) {
+        await c.env.DB.prepare(
+          'INSERT INTO order_items (order_id, product_id, product_name, quantity, price, total) VALUES (?, ?, ?, ?, ?, ?)'
+        ).bind(orderId, it.product_id, it.product_name, it.quantity, it.price, it.total).run()
+
+        if (status !== 'cancelled') {
+          await c.env.DB.prepare('UPDATE products SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .bind(it.quantity, it.product_id).run()
+        }
+      }
+
+      created.push(orderId)
+    }
+
+    return c.json({ success: true, created })
+  } catch (error) {
+    return c.json({ error: 'حدث خطأ في استيراد البيانات' }, 500)
+  }
+})
+
+// ============== Upload APIs ==============
+
+// Upload image to R2 and return a fetchable URL via proxy
+app.post('/api/uploads', async (c) => {
+  try {
+    const form = await c.req.formData()
+    const file = form.get('image')
+    if (!file || typeof file === 'string') {
+      return c.json({ error: 'الملف غير موجود' }, 400)
+    }
+
+    const f = file as File
+    const arrayBuffer = await f.arrayBuffer()
+    const contentType = f.type || 'application/octet-stream'
+    const origName = (f as any).name || 'upload.bin'
+    const ext = origName && origName.includes('.') ? origName.split('.').pop() : ''
+    const key = `products/${new Date().toISOString().slice(0,10)}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext ? '.' + ext.toLowerCase() : ''}`
+
+    await c.env.R2.put(key, arrayBuffer, { httpMetadata: { contentType } })
+
+    // We expose a proxy URL so images can be viewed without public R2
+    return c.json({ success: true, key, url: `/api/uploads/${encodeURIComponent(key)}` })
+  } catch (error) {
+    return c.json({ error: 'فشل رفع الصورة' }, 500)
+  }
+})
+
+// Serve uploaded image from R2 by key (proxy)
+app.get('/api/uploads/:key{.+}', async (c) => {
+  try {
+    const key = c.req.param('key')
+    const object = await c.env.R2.get(key)
+    if (!object) return c.json({ error: 'الملف غير موجود' }, 404)
+
+    return new Response(object.body, {
+      headers: {
+        'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
+        'Cache-Control': 'public, max-age=31536000, immutable'
+      }
+    })
+  } catch (error) {
+    return c.json({ error: 'حدث خطأ في جلب الملف' }, 500)
   }
 })
 
@@ -420,32 +648,49 @@ app.put('/api/orders/:id/receipt', async (c) => {
 // Get dashboard statistics
 app.get('/api/stats/dashboard', async (c) => {
   try {
-    // Total products
+    const from = c.req.query('from')
+    const to = c.req.query('to')
+
+    // Build date range conditions for orders-based aggregates
+    const dateConds: string[] = []
+    const dateParams: any[] = []
+    if (from) {
+      dateConds.push('created_at >= ?')
+      dateParams.push(`${from} 00:00:00`)
+    }
+    if (to) {
+      dateConds.push('created_at <= ?')
+      dateParams.push(`${to} 23:59:59`)
+    }
+    const whereClause = dateConds.length ? `WHERE ${dateConds.join(' AND ')}` : ''
+    const wherePending = dateConds.length ? `AND ${dateConds.join(' AND ')}` : ''
+
+    // Total products (overall)
     const productsCount = await c.env.DB.prepare(
       'SELECT COUNT(*) as count FROM products'
     ).first()
 
-    // Total shops
+    // Total shops (overall)
     const shopsCount = await c.env.DB.prepare(
       'SELECT COUNT(*) as count FROM users WHERE role = "shop"'
     ).first()
 
-    // Total orders
+    // Total orders in range
     const ordersCount = await c.env.DB.prepare(
-      'SELECT COUNT(*) as count FROM orders'
-    ).first()
+      `SELECT COUNT(*) as count FROM orders ${whereClause}`
+    ).bind(...dateParams).first()
 
-    // Pending orders
+    // Pending orders in range
     const pendingOrders = await c.env.DB.prepare(
-      'SELECT COUNT(*) as count FROM orders WHERE status = "pending"'
-    ).first()
+      `SELECT COUNT(*) as count FROM orders WHERE status = "pending" ${wherePending ? wherePending : ''}`
+    ).bind(...dateParams).first()
 
-    // Total sales
+    // Total sales in range
     const totalSales = await c.env.DB.prepare(
-      'SELECT COALESCE(SUM(total_amount), 0) as total FROM orders WHERE status != "cancelled"'
-    ).first()
+      `SELECT COALESCE(SUM(total_amount), 0) as total FROM orders WHERE status != "cancelled" ${wherePending ? wherePending : ''}`
+    ).bind(...dateParams).first()
 
-    // Low stock products
+    // Low stock products (overall)
     const lowStock = await c.env.DB.prepare(
       'SELECT * FROM products WHERE quantity < 20 AND status = "available" ORDER BY quantity ASC'
     ).all()
@@ -466,7 +711,23 @@ app.get('/api/stats/dashboard', async (c) => {
 // Get sales statistics
 app.get('/api/stats/sales', async (c) => {
   try {
-    // Sales by product
+    const from = c.req.query('from')
+    const to = c.req.query('to')
+
+    const conditions: string[] = ["o.status != 'cancelled'"]
+    const params: any[] = []
+    if (from) {
+      conditions.push('o.created_at >= ?')
+      params.push(`${from} 00:00:00`)
+    }
+    if (to) {
+      conditions.push('o.created_at <= ?')
+      params.push(`${to} 23:59:59`)
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`
+
+    // Sales by product in range
     const salesByProduct = await c.env.DB.prepare(
       `SELECT 
         oi.product_name,
@@ -475,10 +736,10 @@ app.get('/api/stats/sales', async (c) => {
         COUNT(DISTINCT oi.order_id) as order_count
       FROM order_items oi
       JOIN orders o ON oi.order_id = o.id
-      WHERE o.status != 'cancelled'
+      ${where}
       GROUP BY oi.product_name
       ORDER BY total_sales DESC`
-    ).all()
+    ).bind(...params).all()
 
     return c.json(salesByProduct.results || [])
   } catch (error) {

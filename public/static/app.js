@@ -445,20 +445,58 @@ const renderProductsManagement = async () => {
       if (v) { preview.classList.remove('hidden'); previewImg.src = v; }
     });
 
+    // Compress image on the client before upload
+    const compressImage = (file, maxW = 1280, maxH = 1280, quality = 0.8, outType = 'image/webp') => new Promise((resolve, reject) => {
+      try {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          let { width, height } = img;
+          const ratio = Math.min(maxW / width, maxH / height, 1);
+          const targetW = Math.round(width * ratio);
+          const targetH = Math.round(height * ratio);
+          const canvas = document.createElement('canvas');
+          canvas.width = targetW; canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+          canvas.toBlob((blob) => {
+            URL.revokeObjectURL(url);
+            if (!blob) return reject(new Error('فشل ضغط الصورة'));
+            const ext = outType.includes('webp') ? 'webp' : (outType.includes('jpeg') ? 'jpg' : 'png');
+            const outFile = new File([blob], (file.name || 'image').replace(/\.[^.]+$/, '') + '.' + ext, { type: outType });
+            resolve(outFile);
+          }, outType, quality);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('تعذر قراءة الصورة')); };
+        img.src = url;
+      } catch (e) { reject(e); }
+    });
+
+    const doUpload = async (file) => {
+      const compressed = await compressImage(file, 1280, 1280, 0.8, 'image/webp');
+      const form = new FormData();
+      form.append('image', compressed);
+      const res = await axios.post('/api/uploads', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      if (res.data && res.data.url) {
+        urlInput.value = res.data.url;
+        preview.classList.remove('hidden');
+        previewImg.src = res.data.url;
+        showNotification('تم رفع الصورة (مضغوطة) بنجاح');
+      }
+    };
+
     btnUpload.addEventListener('click', async () => {
       try {
         if (!inputFile.files || inputFile.files.length === 0) { showNotification('اختر ملف صورة أولاً', 'error'); return; }
         const file = inputFile.files[0];
-        const form = new FormData();
-        form.append('image', file);
-        const res = await axios.post('/api/uploads', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-        if (res.data && res.data.url) {
-          urlInput.value = res.data.url;
-          preview.classList.remove('hidden');
-          previewImg.src = res.data.url;
-          showNotification('تم رفع الصورة بنجاح');
-        }
+        await doUpload(file);
       } catch (e) { showNotification(e.message || 'فشل رفع الصورة', 'error'); }
+    });
+
+    // رفع تلقائي بمجرد اختيار الصورة
+    inputFile.addEventListener('change', async () => {
+      if (!inputFile.files || inputFile.files.length === 0) return;
+      try { await doUpload(inputFile.files[0]); } catch (e) { showNotification(e.message || 'فشل رفع الصورة', 'error'); }
     });
   } catch (error) { showNotification('حدث خطأ في تحميل المنتجات', 'error'); }
 };

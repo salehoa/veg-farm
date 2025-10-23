@@ -598,6 +598,38 @@ app.post('/api/orders/import', async (c) => {
   }
 })
 
+// ============== Users/Credentials APIs ==============
+
+// Update username/password for a user
+app.put('/api/users/:id/credentials', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const { username, password } = await c.req.json()
+
+    if (!username && !password) return c.json({ error: 'لا توجد بيانات للتحديث' }, 400)
+
+    if (username) {
+      const existing = await c.env.DB.prepare('SELECT id FROM users WHERE username = ? AND id != ?')
+        .bind(username, id).first()
+      if (existing) return c.json({ error: 'اسم المستخدم موجود بالفعل' }, 400)
+    }
+
+    const sets: string[] = []
+    const params: any[] = []
+    if (username) { sets.push('username = ?'); params.push(username) }
+    if (password) { sets.push('password = ?'); params.push(hashPassword(password)) }
+    params.push(id)
+
+    await c.env.DB.prepare(`UPDATE users SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run()
+
+    const user = await c.env.DB.prepare('SELECT id, username, name, role, phone, address, status, created_at FROM users WHERE id = ?')
+      .bind(id).first()
+    return c.json({ success: true, user })
+  } catch (error) {
+    return c.json({ error: 'حدث خطأ في تحديث بيانات الحساب' }, 500)
+  }
+})
+
 // ============== Upload APIs ==============
 
 // Upload image to R2 and return a fetchable URL via proxy

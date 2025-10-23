@@ -155,6 +155,9 @@ const renderAdminDashboard = async () => {
               <button onclick="showAdminTab('reports')" class="admin-tab px-4 sm:px-6 py-4 font-semibold whitespace-nowrap border-b-4 border-transparent text-gray-600 hover:text-green-700" data-tab="reports">
                 <i class="fas fa-chart-bar ml-2"></i>التقارير
               </button>
+              <button onclick="showAdminTab('settings')" class="admin-tab px-4 sm:px-6 py-4 font-semibold whitespace-nowrap border-b-4 border-transparent text-gray-600 hover:text-green-700" data-tab="settings">
+                <i class="fas fa-cog ml-2"></i>الإعدادات
+              </button>
             </div>
           </div>
         </div>
@@ -329,6 +332,7 @@ const showAdminTab = (tab) => {
     case 'shops': renderShopsManagement(); break;
     case 'orders': renderOrdersManagement(); break;
     case 'reports': renderSalesReports(); break;
+    case 'settings': renderSettings(); break;
   }
 };
 
@@ -722,9 +726,6 @@ const renderOrdersManagement = async () => {
             </div>
             <div class="flex flex-wrap gap-2">
               <button onclick="applyOrdersFilter()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold">تطبيق</button>
-              <button onclick="exportOrders('csv')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold">تصدير CSV</button>
-              <button onclick="exportOrders('json')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold">تصدير JSON</button>
-              <button onclick="showImportDialog()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-semibold">استيراد</button>
             </div>
           </div>
         </div>
@@ -738,22 +739,6 @@ const renderOrdersManagement = async () => {
               <button onclick="closeOrderDetailsModal()" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-2xl"></i></button>
             </div>
             <div id="orderDetailsContent"></div>
-          </div>
-        </div>
-      </div>
-      <div id="importModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full">
-          <div class="p-6 space-y-4">
-            <div class="flex justify-between items-center mb-2">
-              <h3 class="text-2xl font-bold text-gray-800">استيراد حجوزات</h3>
-              <button onclick="closeImportDialog()" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-2xl"></i></button>
-            </div>
-            <p class="text-sm text-gray-600">الصيغة: JSON يحتوي على مصفوفة orders. سيتم خصم المخزون تلقائياً للحجوزات غير الملغاة.</p>
-            <textarea id="importText" rows="10" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" placeholder='{"orders":[{"shop_username":"shop1","status":"pending","items":[{"product_id":1,"quantity":2,"price":5.5}]}]}'></textarea>
-            <div class="flex gap-2">
-              <button onclick="doImport()" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold">استيراد الآن</button>
-              <button onclick="closeImportDialog()" class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 py-3 rounded-lg font-bold">إلغاء</button>
-            </div>
           </div>
         </div>
       </div>
@@ -914,6 +899,84 @@ const deleteOrder = async (orderId) => {
   if (!confirm('سيتم حذف هذا الحجز نهائيًا. هل أنت متأكد؟')) return;
   try { await API.request(`/orders/${orderId}`, { method: 'DELETE' }); showNotification('تم حذف الحجز بنجاح'); renderOrdersManagement(); }
   catch (e) { showNotification(e.message, 'error'); }
+};
+
+// ================= الإعدادات =================
+const renderSettings = () => {
+  const content = document.getElementById('admin-content');
+  content.innerHTML = `
+    <div class="space-y-6">
+      <div class="bg-white rounded-xl shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-800 mb-6"><i class="fas fa-cog ml-2"></i>الإعدادات</h2>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="bg-gray-50 rounded-xl p-6">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">تحديث بيانات الدخول</h3>
+            <form id="credForm" class="space-y-4">
+              <div>
+                <label class="block text-gray-700 font-semibold mb-2">المعرف</label>
+                <input type="number" id="cred_user_id" placeholder="ID المستخدم" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div>
+                <label class="block text-gray-700 font-semibold mb-2">اسم المستخدم الجديد</label>
+                <input type="text" id="cred_username" placeholder="اسم المستخدم" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div>
+                <label class="block text-gray-700 font-semibold mb-2">كلمة المرور الجديدة</label>
+                <input type="password" id="cred_password" placeholder="كلمة المرور" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div class="flex gap-2">
+                <button type="button" id="btnUpdateCreds" class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold">تحديث</button>
+              </div>
+            </form>
+            <p class="text-xs text-gray-500 mt-3">ملاحظة: التحديث فوري. يُنصح باستخدام أسماء مستخدمين قوية وكلمات مرور صعبة.</p>
+          </div>
+
+          <div class="bg-gray-50 rounded-xl p-6">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">تصدير/استيراد البيانات</h3>
+            <div class="space-y-3">
+              <div class="flex flex-wrap gap-2">
+                <button onclick="exportOrders('csv')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold">تصدير CSV</button>
+                <button onclick="exportOrders('json')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold">تصدير JSON</button>
+                <button onclick="showImportDialog()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-semibold">استيراد</button>
+              </div>
+              <p class="text-sm text-gray-600">يمكن تحديد فترة التصدير من تبويب الحجوزات عبر فلاتر التاريخ.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="importModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full">
+          <div class="p-6 space-y-4">
+            <div class="flex justify-between items-center mb-2">
+              <h3 class="text-2xl font-bold text-gray-800">استيراد حجوزات</h3>
+              <button onclick="closeImportDialog()" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-2xl"></i></button>
+            </div>
+            <p class="text-sm text-gray-600">الصيغة: JSON يحتوي على مصفوفة orders. سيتم خصم المخزون تلقائياً للحجوزات غير الملغاة.</p>
+            <textarea id="importText" rows="10" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" placeholder='{"orders":[{"shop_username":"shop1","status":"pending","items":[{"product_id":1,"quantity":2,"price":5.5}]}]}'></textarea>
+            <div class="flex gap-2">
+              <button onclick="doImport()" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold">استيراد الآن</button>
+              <button onclick="closeImportDialog()" class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 py-3 rounded-lg font-bold">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // أزرار التحديث
+  document.getElementById('btnUpdateCreds').addEventListener('click', async () => {
+    const id = document.getElementById('cred_user_id').value.trim();
+    const username = document.getElementById('cred_username').value.trim();
+    const password = document.getElementById('cred_password').value;
+    if (!id) { showNotification('أدخل معرف المستخدم', 'error'); return; }
+    if (!username && !password) { showNotification('أدخل اسم مستخدم أو كلمة مرور للتحديث', 'error'); return; }
+    try {
+      await API.request(`/users/${id}/credentials`, { method: 'PUT', data: { username, password } });
+      showNotification('تم تحديث بيانات الدخول بنجاح');
+      document.getElementById('cred_password').value = '';
+    } catch (e) { showNotification(e.message, 'error'); }
+  });
 };
 
 // ================= Sales Reports =================
@@ -1241,7 +1304,9 @@ window.closeCart = closeCart;
 window.removeFromCart = removeFromCart;
 window.confirmOrder = confirmOrder;
 window.applyOrdersFilter = applyOrdersFilter;
+// نقل التصدير/الاستيراد إلى تبويب الإعدادات
 window.exportOrders = exportOrders;
 window.showImportDialog = showImportDialog;
 window.closeImportDialog = closeImportDialog;
 window.doImport = doImport;
+window.renderSettings = renderSettings;

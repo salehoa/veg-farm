@@ -346,6 +346,7 @@ const renderProductsManagement = async () => {
         <div id="products-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           ${products.map(product => `
             <div class="border border-gray-200 rounded-xl p-5 hover:shadow-xl transition-all">
+              ${product.image_url ? `<div class="w-full h-40 bg-gray-100 rounded-md mb-4 overflow-hidden"><img src="${product.image_url}" alt="${product.name_ar}" class="w-full h-40 object-cover"></div>` : ``}
               <div class="flex justify-between items-start mb-4">
                 <div>
                   <h3 class="text-xl font-bold text-gray-800">${product.name_ar}</h3>
@@ -987,9 +988,15 @@ const renderShopDashboard = async () => {
             <div id="products-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               ${products.map(product => `
                 <div class="bg-white rounded-xl shadow-lg hover:shadow-2xl transition-all overflow-hidden">
-                  <div class="bg-gradient-to-br from-green-400 to-green-600 h-32 flex items-center justify-center">
-                    <i class="fas fa-leaf text-white text-5xl"></i>
-                  </div>
+                  ${product.image_url ? `
+                    <div class=\"w-full h-32 bg-gray-100\">
+                      <img src=\"${product.image_url}\" alt=\"${product.name_ar}\" class=\"w-full h-32 object-cover\" />
+                    </div>
+                  ` : `
+                    <div class=\"bg-gradient-to-br from-green-400 to-green-600 h-32 flex items-center justify-center\">
+                      <i class=\"fas fa-leaf text-white text-5xl\"></i>
+                    </div>
+                  `}
                   <div class="p-5">
                     <h3 class="text-2xl font-bold text-gray-800 mb-2">${product.name_ar}</h3>
                     ${product.name_en ? `<p class="text-gray-600 text-sm mb-3">${product.name_en}</p>` : ''}

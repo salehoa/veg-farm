@@ -143,14 +143,15 @@ const renderAdminDashboard = async () => {
               <button onclick="showAdminTab('overview')" class="admin-tab px-4 sm:px-6 py-4 font-semibold whitespace-nowrap border-b-4 border-green-600 text-green-700" data-tab="overview">
                 <i class="fas fa-home ml-2"></i>نظرة عامة
               </button>
+              <button onclick="showAdminTab('orders')" class="admin-tab px-4 sm:px-6 py-4 font-semibold whitespace-nowrap border-b-4 border-transparent text-gray-600 hover:text-green-700 relative" data-tab="orders">
+                <i class="fas fa-shopping-cart ml-2"></i>الحجوزات
+                <span id="ordersPendingBadge" class="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-[25%] pointer-events-none bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center" style="${stats.pendingOrders > 0 ? '' : 'display:none'}">${stats.pendingOrders || 0}</span>
+              </button>
               <button onclick="showAdminTab('products')" class="admin-tab px-4 sm:px-6 py-4 font-semibold whitespace-nowrap border-b-4 border-transparent text-gray-600 hover:text-green-700" data-tab="products">
                 <i class="fas fa-leaf ml-2"></i>المنتجات
               </button>
               <button onclick="showAdminTab('shops')" class="admin-tab px-4 sm:px-6 py-4 font-semibold whitespace-nowrap border-b-4 border-transparent text-gray-600 hover:text-green-700" data-tab="shops">
                 <i class="fas fa-store ml-2"></i>المحلات
-              </button>
-              <button onclick="showAdminTab('orders')" class="admin-tab px-4 sm:px-6 py-4 font-semibold whitespace-nowrap border-b-4 border-transparent text-gray-600 hover:text-green-700" data-tab="orders">
-                <i class="fas fa-shopping-cart ml-2"></i>الحجوزات
               </button>
               <button onclick="showAdminTab('reports')" class="admin-tab px-4 sm:px-6 py-4 font-semibold whitespace-nowrap border-b-4 border-transparent text-gray-600 hover:text-green-700" data-tab="reports">
                 <i class="fas fa-chart-bar ml-2"></i>التقارير
@@ -332,7 +333,7 @@ const showAdminTab = (tab) => {
     case 'shops': renderShopsManagement(); break;
     case 'orders': renderOrdersManagement(); break;
     case 'reports': renderSalesReports(); break;
-    case 'settings': renderSettings(); break;
+    case 'settings': if (currentUser && currentUser.role === 'admin') { renderSettings(); } else { showNotification('صلاحيات غير كافية', 'error'); } break;
   }
 };
 
@@ -922,12 +923,12 @@ const closeOrderDetailsModal = () => document.getElementById('orderDetailsModal'
 const updateOrderStatus = async (orderId, status) => {
   const confirmMsg = status === 'confirmed' ? 'هل تريد تأكيد هذا الحجز؟' : 'هل تريد إلغاء هذا الحجز؟';
   if (!confirm(confirmMsg)) return;
-  try { await API.request(`/orders/${orderId}/status`, { method: 'PUT', data: { status } }); showNotification('تم تحديث حالة الحجز بنجاح'); renderOrdersManagement(); }
+  try { await API.request(`/orders/${orderId}/status`, { method: 'PUT', data: { status } }); showNotification('تم تحديث حالة الحجز بنجاح'); window.ordersFrom=''; window.ordersTo=''; renderOrdersManagement(); updateOrdersPendingBadge(); }
   catch (e) { showNotification(e.message, 'error'); }
 };
 const deleteOrder = async (orderId) => {
   if (!confirm('سيتم حذف هذا الحجز نهائيًا. هل أنت متأكد؟')) return;
-  try { await API.request(`/orders/${orderId}`, { method: 'DELETE' }); showNotification('تم حذف الحجز بنجاح'); renderOrdersManagement(); }
+  try { await API.request(`/orders/${orderId}`, { method: 'DELETE' }); showNotification('تم حذف الحجز بنجاح'); window.ordersFrom=''; window.ordersTo=''; renderOrdersManagement(); updateOrdersPendingBadge(); }
   catch (e) { showNotification(e.message, 'error'); }
 };
 
@@ -938,27 +939,10 @@ const renderSettings = () => {
     <div class="space-y-6">
       <div class="bg-white rounded-xl shadow-lg p-6">
         <h2 class="text-2xl font-bold text-gray-800 mb-6"><i class="fas fa-cog ml-2"></i>الإعدادات</h2>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="space-y-6">
           <div class="bg-gray-50 rounded-xl p-6">
-            <h3 class="text-xl font-bold text-gray-800 mb-4">تحديث بيانات الدخول</h3>
-            <form id="credForm" class="space-y-4">
-              <div>
-                <label class="block text-gray-700 font-semibold mb-2">المعرف</label>
-                <input type="number" id="cred_user_id" placeholder="ID المستخدم" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
-              </div>
-              <div>
-                <label class="block text-gray-700 font-semibold mb-2">اسم المستخدم الجديد</label>
-                <input type="text" id="cred_username" placeholder="اسم المستخدم" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
-              </div>
-              <div>
-                <label class="block text-gray-700 font-semibold mb-2">كلمة المرور الجديدة</label>
-                <input type="password" id="cred_password" placeholder="كلمة المرور" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
-              </div>
-              <div class="flex gap-2">
-                <button type="button" id="btnUpdateCreds" class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold">تحديث</button>
-              </div>
-            </form>
-            <p class="text-xs text-gray-500 mt-3">ملاحظة: التحديث فوري. يُنصح باستخدام أسماء مستخدمين قوية وكلمات مرور صعبة.</p>
+            <h3 class="text-xl font-bold text-gray-800 mb-4">المستخدمون (لوحة تحكم المزرعة)</h3>
+            <div id="usersTable">جارٍ التحميل...</div>
           </div>
 
           <div class="bg-gray-50 rounded-xl p-6">
@@ -994,20 +978,234 @@ const renderSettings = () => {
     </div>
   `;
 
-  // أزرار التحديث
-  document.getElementById('btnUpdateCreds').addEventListener('click', async () => {
-    const id = document.getElementById('cred_user_id').value.trim();
-    const username = document.getElementById('cred_username').value.trim();
-    const password = document.getElementById('cred_password').value;
-    if (!id) { showNotification('أدخل معرف المستخدم', 'error'); return; }
-    if (!username && !password) { showNotification('أدخل اسم مستخدم أو كلمة مرور للتحديث', 'error'); return; }
-    try {
-      await API.request(`/users/${id}/credentials`, { method: 'PUT', data: { username, password } });
-      showNotification('تم تحديث بيانات الدخول بنجاح');
-      document.getElementById('cred_password').value = '';
-    } catch (e) { showNotification(e.message, 'error'); }
-  });
+  // تحميل جدول المستخدمين
+  loadUsersTable();
 };
+
+// تحميل وبناء جدول المستخدمين في الإعدادات
+async function loadUsersTable() {
+  if (!currentUser || currentUser.role !== 'admin') {
+    const el = document.getElementById('admin-content');
+    if (el) el.innerHTML = '<div class="bg-red-50 border-r-4 border-red-600 rounded-xl p-6"><p class="text-red-700 font-semibold">ليست لديك صلاحية الوصول إلى هذه الصفحة</p></div>';
+    return;
+  }
+  try {
+    const users = await API.request('/users');
+    const el = document.getElementById('usersTable');
+    if (!users || users.length === 0) { el.innerHTML = '<p class="text-gray-500">لا يوجد مستخدمون</p>'; return; }
+    el.innerHTML = `
+      <div class="hidden md:block w-full overflow-x-auto">
+        <table class="min-w-full table-fixed">
+          <thead>
+            <tr class="bg-gray-50">
+              <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">المعرف</th>
+              <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">اسم المستخدم</th>
+              <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">كلمة المرور</th>
+              <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">الاسم</th>
+              <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">الدور</th>
+              <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">الحالة</th>
+              <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">الإجراءات</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            ${users.map(u => `
+              <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 text-sm">${u.id}</td>
+                <td class="px-4 py-3 text-sm font-mono">${u.username}</td>
+                <td class="px-4 py-3 text-sm font-mono">${u.password || ''}</td>
+                <td class="px-4 py-3 text-sm">${u.name}</td>
+                <td class="px-4 py-3 text-sm">${u.role === 'admin' ? 'مدير' : 'محل'}</td>
+                <td class="px-4 py-3 text-sm">${u.status === 'active' ? '<span class=\"px-2 py-1 text-xs rounded bg-green-100 text-green-700\">نشط</span>' : '<span class=\"px-2 py-1 text-xs rounded bg-red-100 text-red-700\">معطل</span>'}</td>
+                <td class="px-4 py-3 text-sm space-x-2 space-x-reverse">
+                  <button onclick='editUser(${JSON.stringify(u)})' class="px-3 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 text-sm font-semibold transition-all">تعديل</button>
+                  ${u.role !== 'admin' ? `<button onclick=\"deleteUser(${u.id})\" class=\"px-3 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm font-semibold transition-all\">حذف</button>` : ''}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="md:hidden space-y-3">
+        ${users.map(u => `
+          <div class="border border-gray-200 rounded-xl p-4">
+            <div class="flex justify-between items-center mb-2">
+              <div>
+                <p class="text-sm font-mono text-gray-600">${u.username}</p>
+                <h4 class="font-bold">${u.name}</h4>
+              </div>
+              <span class="px-2 py-1 rounded-full text-xs font-semibold ${u.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${u.status === 'active' ? 'نشط' : 'معطل'}</span>
+            </div>
+            <p class="text-sm text-gray-600 mb-1"><span class="font-semibold">الدور:</span> ${u.role === 'admin' ? 'مدير' : 'محل'}</p>
+            <p class="text-sm text-gray-600 mb-1"><span class="font-semibold">كلمة المرور:</span> <span class="font-mono">${u.password || ''}</span></p>
+            <div class="flex flex-col sm:flex-row gap-2 mt-2">
+              <button onclick='editUser(${JSON.stringify(u)})' class="w-full sm:w-auto px-3 py-2 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 text-sm font-semibold transition-all">تعديل</button>
+              ${u.role !== 'admin' ? `<button onclick=\"deleteUser(${u.id})\" class=\"w-full sm:w-auto px-3 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm font-semibold transition-all\">حذف</button>` : ''}
+            </div>
+            <p class="text-xs text-gray-500 mt-2">ID: ${u.id}</p>
+          </div>
+        `).join('')}
+      </div>
+
+      <div id="userModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full">
+          <div class="p-6">
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="text-2xl font-bold text-gray-800" id="userModalTitle">تعديل المستخدم</h3>
+              <button onclick="closeUserModal()" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times text-2xl"></i></button>
+            </div>
+            <form id="userForm" class="space-y-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-gray-700 font-semibold mb-2">اسم المستخدم *</label>
+                  <input type="text" id="user_username" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+                </div>
+                <div>
+                  <label class="block text-gray-700 font-semibold mb-2">كلمة المرور (اتركها فارغة بدون تغيير)</label>
+                  <input type="text" id="user_password" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+                </div>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-gray-700 font-semibold mb-2">الاسم *</label>
+                  <input type="text" id="user_name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+                </div>
+                <div>
+                  <label class="block text-gray-700 font-semibold mb-2">الدور</label>
+                  <select id="user_role" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
+                    <option value="admin">مدير</option>
+                    <option value="shop">محل</option>
+                  </select>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-gray-700 font-semibold mb-2">الهاتف</label>
+                  <input type="tel" id="user_phone" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+                </div>
+                <div>
+                  <label class="block text-gray-700 font-semibold mb-2">العنوان</label>
+                  <input type="text" id="user_address" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-gray-700 font-semibold mb-2">الحالة</label>
+                <select id="user_status" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
+                  <option value="active">نشط</option>
+                  <option value="inactive">معطل</option>
+                </select>
+              </div>
+              <div class="flex flex-col sm:flex-row gap-2 pt-4">
+                <button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold transition-all">حفظ</button>
+                <button type="button" onclick="closeUserModal()" class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 py-3 rounded-lg font-bold transition-all">إلغاء</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl p-6 mt-6">
+        <h3 class="text-lg font-bold text-gray-800 mb-4">إضافة مدير جديد</h3>
+        <form id="addAdminForm" class="space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-gray-700 font-semibold mb-2">اسم المستخدم *</label>
+              <input type="text" id="new_admin_username" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+            </div>
+            <div>
+              <label class="block text-gray-700 font-semibold mb-2">كلمة المرور *</label>
+              <input type="text" id="new_admin_password" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-gray-700 font-semibold mb-2">الاسم *</label>
+              <input type="text" id="new_admin_name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+            </div>
+            <div>
+              <label class="block text-gray-700 font-semibold mb-2">الهاتف</label>
+              <input type="tel" id="new_admin_phone" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-gray-700 font-semibold mb-2">العنوان</label>
+            <input type="text" id="new_admin_address" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500" />
+          </div>
+          <div class="flex flex-col sm:flex-row gap-2 pt-2">
+            <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold transition-all">إضافة المدير</button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    document.getElementById('userForm')?.addEventListener('submit', handleUserSubmit);
+    document.getElementById('addAdminForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const payload = {
+          username: document.getElementById('new_admin_username').value,
+          password: document.getElementById('new_admin_password').value,
+          name: document.getElementById('new_admin_name').value,
+          phone: document.getElementById('new_admin_phone').value,
+          address: document.getElementById('new_admin_address').value
+        };
+        await API.request('/users', { method: 'POST', data: payload });
+        showNotification('تم إنشاء حساب المدير بنجاح');
+        loadUsersTable();
+      } catch (e) { showNotification(e.message, 'error'); }
+    });
+  } catch (e) {
+    showNotification('حدث خطأ في تحميل المستخدمين', 'error');
+  }
+}
+
+function editUser(user) {
+  document.getElementById('userModal').classList.remove('hidden');
+  document.getElementById('userModalTitle').textContent = 'تعديل المستخدم';
+  const form = document.getElementById('userForm');
+  form.dataset.id = user.id;
+  document.getElementById('user_username').value = user.username;
+  document.getElementById('user_password').value = '';
+  document.getElementById('user_name').value = user.name || '';
+  document.getElementById('user_role').value = user.role || 'shop';
+  document.getElementById('user_phone').value = user.phone || '';
+  document.getElementById('user_address').value = user.address || '';
+  document.getElementById('user_status').value = user.status || 'active';
+}
+
+function closeUserModal() { document.getElementById('userModal').classList.add('hidden'); }
+
+async function handleUserSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById('userForm').dataset.id;
+  const payload = {
+    username: document.getElementById('user_username').value,
+    password: document.getElementById('user_password').value, // يمكن أن تكون فارغة لعدم التغيير
+    name: document.getElementById('user_name').value,
+    role: document.getElementById('user_role').value,
+    phone: document.getElementById('user_phone').value,
+    address: document.getElementById('user_address').value,
+    status: document.getElementById('user_status').value
+  };
+  try {
+    await API.request(`/users/${id}`, { method: 'PUT', data: payload });
+    showNotification('تم تحديث بيانات المستخدم بنجاح');
+    closeUserModal();
+    loadUsersTable();
+  } catch (e) { showNotification(e.message, 'error'); }
+}
+
+async function deleteUser(id) {
+  if (!confirm('سيتم حذف هذا المستخدم نهائيًا. هل أنت متأكد؟')) return;
+  try {
+    await API.request(`/users/${id}`, { method: 'DELETE' });
+    showNotification('تم حذف المستخدم بنجاح');
+    loadUsersTable();
+  } catch (e) { showNotification(e.message, 'error'); }
+}
+
+// expose handlers
+window.editUser = editUser;
+window.closeUserModal = closeUserModal;
 
 // ================= Sales Reports =================
 const renderSalesReports = async () => {
@@ -1088,6 +1286,7 @@ const applySalesFilter = () => {
 
 // ================= Shop Dashboard =================
 const renderShopDashboard = async () => {
+  const updateBadgeIfReady = () => { try { updateCartBadge(); } catch (_) {} }
   try {
     const products = await API.request('/products?status=available');
     document.getElementById('app').innerHTML = `
@@ -1103,9 +1302,9 @@ const renderShopDashboard = async () => {
                 </div>
               </div>
               <div class="flex items-center gap-3">
-                <button onclick="showCart()" class="relative bg-white/20 hover:bg-white/30 p-3 rounded-full transition focus:outline-none focus:ring-2 focus:ring-white/70">
+                <button id="cartButton" onclick="showCart()" class="relative bg-white/20 hover:bg-white/30 p-3 rounded-full transition focus:outline-none focus:ring-2 focus:ring-white/70">
                   <i class="fas fa-shopping-cart text-xl"></i>
-                  ${cart.length > 0 ? `<span class="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">${cart.length}</span>` : ''}
+                  <span id="cartCountBadge" class="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center" style="${cart.length > 0 ? '' : 'display:none'}">${cart.length}</span>
                 </button>
                 <button onclick="logout()" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition"><i class="fas fa-sign-out-alt ml-2"></i>خروج</button>
               </div>
@@ -1189,6 +1388,7 @@ const addToCart = (productId, name, price, unit, maxQty) => {
   if (quantity <= 0 || quantity > maxQty) { showNotification('الكمية المطلوبة غير صحيحة', 'error'); return; }
   const existing = cart.find(i => i.product_id === productId);
   if (existing) existing.quantity = quantity; else cart.push({ product_id: productId, name, price, unit, quantity });
+  updateCartBadge();
   showNotification(`تمت إضافة ${name} للسلة`);
   qtyInput.value = 1;
 };
@@ -1203,6 +1403,7 @@ const showCart = () => {
       </div>`;
   } else {
     const total = cart.reduce((s, i) => s + (i.price * i.quantity), 0);
+    updateCartBadge();
     el.innerHTML = `
       <div class="space-y-4 mb-6">
         ${cart.map((item, idx) => `
@@ -1236,13 +1437,15 @@ const showCart = () => {
   document.getElementById('cartModal').classList.remove('hidden');
 };
 const closeCart = () => document.getElementById('cartModal').classList.add('hidden');
-const removeFromCart = (index) => { cart.splice(index, 1); showCart(); if (cart.length === 0) renderShopDashboard(); };
+const removeFromCart = (index) => { cart.splice(index, 1); updateCartBadge(); showCart(); if (cart.length === 0) renderShopDashboard(); };
 const confirmOrder = async () => {
+  // at confirm we will clear cart after success; badge will refresh on reload as well
+
   if (cart.length === 0) return;
   const notes = document.getElementById('orderNotes').value;
   try {
     await API.request('/orders', { method: 'POST', data: { shop_id: currentUser.id, items: cart, notes } });
-    showNotification('تم إنشاء الحجز بنجاح'); cart = []; closeCart(); renderShopDashboard();
+    showNotification('تم إنشاء الحجز بنجاح'); cart = []; updateCartBadge(); closeCart(); renderShopOrders();
   } catch (e) { showNotification(e.message, 'error'); }
 };
 
@@ -1307,6 +1510,20 @@ const getStatusText = (status) => {
   }
 };
 
+// تحديث شارة الحجوزات في التبويب مباشرةً بعد العمليات
+async function updateOrdersPendingBadge() {
+  try {
+    const pending = await API.request('/orders?role=admin&status=pending');
+    const count = Array.isArray(pending) ? pending.length : 0;
+    const badge = document.getElementById('ordersPendingBadge');
+    if (!badge) return;
+    badge.textContent = count;
+    badge.style.display = count > 0 ? '' : 'none';
+  } catch (_) {
+    // تجاهل الأخطاء الصامتة
+  }
+}
+
 // Init
 if (checkAuth()) { if (currentUser.role === 'admin') renderAdminDashboard(); else renderShopDashboard(); } else { renderLoginPage(); }
 
@@ -1333,6 +1550,20 @@ window.showCart = showCart;
 window.closeCart = closeCart;
 window.removeFromCart = removeFromCart;
 window.confirmOrder = confirmOrder;
+
+// تحديث شارة السلة حسب عدد العناصر
+function updateCartBadge() {
+  const badge = document.getElementById('cartCountBadge');
+  if (!badge) return;
+  const count = cart.length;
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+window.updateCartBadge = updateCartBadge;
 window.applyOrdersFilter = applyOrdersFilter;
 // نقل التصدير/الاستيراد إلى تبويب الإعدادات
 window.exportOrders = exportOrders;

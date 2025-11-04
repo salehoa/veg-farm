@@ -630,6 +630,112 @@ app.post('/api/orders/import', async (c) => {
   }
 })
 
+// ============== Users Management (Admin) ==============
+
+// List all users (including admin)
+app.get('/api/users', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare(
+      'SELECT id, username, password, name, role, phone, address, status, created_at FROM users ORDER BY created_at DESC'
+    ).all()
+    return c.json(results)
+  } catch (error) {
+    return c.json({ error: 'حدث خطأ في جلب المستخدمين' }, 500)
+  }
+})
+
+// Update general user fields (admin)
+app.put('/api/users/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const { username, password, name, role, phone, address, status } = await c.req.json()
+
+    const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(id).first()
+    if (!user) return c.json({ error: 'المستخدم غير موجود' }, 404)
+
+    if (username) {
+      const existing = await c.env.DB.prepare('SELECT id FROM users WHERE username = ? AND id != ?').bind(username, id).first()
+      if (existing) return c.json({ error: 'اسم المستخدم موجود بالفعل' }, 400)
+    }
+
+    if (role && role !== 'admin' && role !== 'shop') {
+      return c.json({ error: 'دور المستخدم غير صالح' }, 400)
+    }
+
+    // safeguard: do not allow leaving system without any admin
+    if (role && role !== 'admin' && user.role === 'admin') {
+      const otherAdmins = await c.env.DB.prepare('SELECT COUNT(*) as cnt FROM users WHERE role = "admin" AND id != ?')
+        .bind(id).first()
+      if (!otherAdmins || (otherAdmins.cnt as number) === 0) {
+        return c.json({ error: 'لا يمكن إزالة آخر حساب مدير' }, 400)
+      }
+    }
+
+    const sets: string[] = []
+    const params: any[] = []
+    if (username != null) { sets.push('username = ?'); params.push(username) }
+    if (password != null && password !== '') { sets.push('password = ?'); params.push(hashPassword(password)) }
+    if (name != null) { sets.push('name = ?'); params.push(name) }
+    if (role != null) { sets.push('role = ?'); params.push(role) }
+    if (phone != null) { sets.push('phone = ?'); params.push(phone) }
+    if (address != null) { sets.push('address = ?'); params.push(address) }
+    if (status != null) { sets.push('status = ?'); params.push(status) }
+    if (sets.length === 0) return c.json({ error: 'لا توجد بيانات للتحديث' }, 400)
+
+    params.push(id)
+    await c.env.DB.prepare(`UPDATE users SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(...params).run()
+
+    return c.json({ success: true, message: 'تم تحديث بيانات المستخدم بنجاح' })
+  } catch (error) {
+    return c.json({ error: 'حدث خطأ في تحديث بيانات المستخدم' }, 500)
+  }
+})
+
+// Delete user (admin)
+app.delete('/api/users/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const user = await c.env.DB.prepare('SELECT id, role FROM users WHERE id = ?').bind(id).first()
+    if (!user) return c.json({ error: 'المستخدم غير موجود' }, 404)
+
+    // منع حذف حسابات المدير
+    if (user.role === 'admin') {
+      return c.json({ error: 'لا يمكن حذف حساب المدير' }, 400)
+    }
+
+    const count = await c.env.DB.prepare('SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?').bind(id).first()
+    if ((count?.cnt || 0) > 0) {
+      return c.json({ error: 'لا يمكن حذف هذا المستخدم لوجود حجوزات مرتبطة به' }, 400)
+    }
+
+    await c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(id).run()
+    return c.json({ success: true, message: 'تم حذف المستخدم بنجاح' })
+  } catch (error) {
+    return c.json({ error: 'حدث خطأ في حذف المستخدم' }, 500)
+  }
+})
+
+// Create admin user (admin only)
+app.post('/api/users', async (c) => {
+  try {
+    const { username, password, name, phone, address } = await c.req.json()
+    if (!username || !password || !name) {
+      return c.json({ error: 'اسم المستخدم وكلمة المرور والاسم مطلوبة' }, 400)
+    }
+    const existing = await c.env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(username).first()
+    if (existing) return c.json({ error: 'اسم المستخدم موجود بالفعل' }, 400)
+
+    const result = await c.env.DB.prepare(
+      `INSERT INTO users (username, password, name, role, phone, address, status)
+       VALUES (?, ?, ?, 'admin', ?, ?, 'active')`
+    ).bind(username, hashPassword(password), name, phone || '', address || '').run()
+
+    return c.json({ success: true, id: result.meta.last_row_id, message: 'تم إنشاء حساب المدير بنجاح' })
+  } catch (error) {
+    return c.json({ error: 'حدث خطأ في إنشاء المستخدم' }, 500)
+  }
+})
+
 // ============== Users/Credentials APIs ==============
 
 // Update username/password for a user

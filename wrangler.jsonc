@@ -10,13 +10,7 @@
     {
       "binding": "DB",
       "database_name": "farm-vegetables-production",
-      "database_id": "local-db-for-development"
-    }
-  ],
-  "r2_buckets": [
-    {
-      "binding": "R2",
-      "bucket_name": "farm-vegetables-uploads"
+      "database_id": "cf732859-67cb-45e1-8e09-6e50f8714c03"
     }
   ]
 }

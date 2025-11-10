@@ -767,53 +767,9 @@ app.put('/api/users/:id/credentials', async (c) => {
   }
 })
 
-// ============== Upload APIs ==============
-
-// Upload image to R2 and return a fetchable URL via proxy
-app.post('/api/uploads', async (c) => {
-  try {
-    const form = await c.req.formData()
-    const file = form.get('image')
-    if (!file || typeof file === 'string') {
-      return c.json({ error: 'الملف غير موجود' }, 400)
-    }
-
-    const f = file as File
-    const arrayBuffer = await f.arrayBuffer()
-    const contentType = f.type || 'application/octet-stream'
-    const origName = (f as any).name || 'upload.bin'
-    const ext = origName && origName.includes('.') ? origName.split('.').pop() : ''
-    const key = `products/${new Date().toISOString().slice(0,10)}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext ? '.' + ext.toLowerCase() : ''}`
-
-    await c.env.R2.put(key, arrayBuffer, { httpMetadata: { contentType } })
-
-    // Build absolute URL for input type=url compatibility
-    const origin = new URL(c.req.url).origin
-    const path = `/api/uploads/${encodeURIComponent(key)}`
-    const url = `${origin}${path}`
-    return c.json({ success: true, key, path, url })
-  } catch (error) {
-    return c.json({ error: 'فشل رفع الصورة' }, 500)
-  }
-})
-
-// Serve uploaded image from R2 by key (proxy)
-app.get('/api/uploads/:key{.+}', async (c) => {
-  try {
-    const key = c.req.param('key')
-    const object = await c.env.R2.get(key)
-    if (!object) return c.json({ error: 'الملف غير موجود' }, 404)
-
-    return new Response(object.body, {
-      headers: {
-        'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
-        'Cache-Control': 'public, max-age=31536000, immutable'
-      }
-    })
-  } catch (error) {
-    return c.json({ error: 'حدث خطأ في جلب الملف' }, 500)
-  }
-})
+// ============== Upload APIs (Removed - Using Base64 instead) ==============
+// R2 is not enabled in this account, so we use Base64 encoding instead
+// See the Image Upload API section below for the Base64 implementation
 
 // ============== Statistics APIs ==============
 

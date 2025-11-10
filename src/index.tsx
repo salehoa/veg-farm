@@ -4,7 +4,6 @@ import { serveStatic } from 'hono/cloudflare-workers'
 
 type Bindings = {
   DB: D1Database;
-  R2: R2Bucket;
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -917,6 +916,39 @@ app.get('/api/stats/sales', async (c) => {
     return c.json(salesByProduct.results || [])
   } catch (error) {
     return c.json({ error: 'حدث خطأ في جلب إحصائيات المبيعات' }, 500)
+  }
+})
+
+// ============== Image Upload API ==============
+
+// Upload image as Base64 - receives Base64 string directly from frontend
+app.post('/api/uploads', async (c) => {
+  try {
+    const { imageData } = await c.req.json()
+    
+    if (!imageData || typeof imageData !== 'string') {
+      return c.json({ error: 'لم يتم إرسال بيانات الصورة' }, 400)
+    }
+
+    // Validate it's a data URL
+    if (!imageData.startsWith('data:image/')) {
+      return c.json({ error: 'تنسيق الصورة غير صحيح' }, 400)
+    }
+
+    // Check approximate size (Base64 is ~33% larger than original)
+    const sizeApprox = (imageData.length * 3) / 4
+    if (sizeApprox > 5 * 1024 * 1024) {
+      return c.json({ error: 'حجم الصورة كبير جداً (الحد الأقصى 5 ميجابايت)' }, 400)
+    }
+
+    return c.json({ 
+      success: true, 
+      url: imageData,
+      message: 'تم رفع الصورة بنجاح'
+    })
+  } catch (error: any) {
+    console.error('Upload error:', error)
+    return c.json({ error: 'حدث خطأ في رفع الصورة' }, 500)
   }
 })
 

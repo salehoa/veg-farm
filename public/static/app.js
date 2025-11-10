@@ -479,15 +479,22 @@ const renderProductsManagement = async () => {
 
     const doUpload = async (file) => {
       const compressed = await compressImage(file, 1280, 1280, 0.8, 'image/webp');
-      const form = new FormData();
-      form.append('image', compressed);
-      const res = await axios.post('/api/uploads', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-      if (res.data && (res.data.url || res.data.path)) {
-        // استخدم URL مطلق ليتوافق مع type=url والتحقق في المتصفح
-        const finalUrl = res.data.url || res.data.path;
-        urlInput.value = finalUrl;
+      
+      // Convert compressed file to Base64
+      const reader = new FileReader();
+      const base64Promise = new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(compressed);
+      });
+      
+      const imageData = await base64Promise;
+      const res = await axios.post('/api/uploads', { imageData });
+      
+      if (res.data && res.data.url) {
+        urlInput.value = res.data.url;
         preview.classList.remove('hidden');
-        previewImg.src = finalUrl;
+        previewImg.src = res.data.url;
         showNotification('تم رفع الصورة (مضغوطة) بنجاح');
       }
     };
